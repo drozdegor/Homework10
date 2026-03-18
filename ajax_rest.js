@@ -4,71 +4,102 @@ $(document).ready(function () {
 
     if (!ip) {
       alert("Пожалуйста, введите IP-адрес");
-      return;
+      return false;
     }
 
-    var token = "caefb54715667bc050e99cda7b5558dc1893b9e2";
-    var url = "https://suggestions.dadata.ru/suggestions/api/4_1/rs/iplocate/ip";
+    if (isPrivateIP(ip)) {
+      $("#result").html("<p style='color: orange;'>Предупреждение: IP-адрес <strong>" + ip + "</strong> является частным (локальным). Для него невозможно определить геолокацию.</p>");
+      return false;
+    }
+
+    var formData = { query: ip };
+    var url = "https://suggestions.dadata.ru/suggestions/api/4_1/rs/iplocate/address?ip=";
+    var token = "e2964d4de9b954644ad4e02cd1c27546b3856961";
 
     $.ajax({
       type: "GET",
-      url: url + "?ip=" + encodeURIComponent(ip),
+      url: url + formData.query,
       beforeSend: function(xhr) {
         xhr.setRequestHeader("Authorization", "Token " + token);
         xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.setRequestHeader("Accept", "application/json");
       },
+      data: '',
       dataType: "json",
-      encode: true
-    }).done(function (result) {
-      displayCity(result);
-    }).fail(function (jqXHR, textStatus, errorThrown) {
-      handleError(jqXHR, textStatus, errorThrown);
+      success: function (result) {
+        console.log("Полный ответ API:", result); // Отладка: полный ответ
+
+        if (!result.location) {
+          displayNoLocation(ip);
+          return;
+        }
+
+        displayResult(result);
+      },
+      error: function (xhr, status, error) {
+        handleError(xhr, status, error);
+      }
     });
 
     event.preventDefault();
   });
 });
 
-function displayCity(data) {
+function isPrivateIP(ip) {
+  const privateRanges = [
+    /^10\./,
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
+    /^192\.168\./
+  ];
+  return privateRanges.some(regex => regex.test(ip));
+}
+
+function displayResult(result) {
   var resultDiv = $("#result");
-  var cityName = "Информация о городе не найдена";
+  resultDiv.empty();
 
-  if (data && data.location && data.location.city && data.location.city.name) {
-    cityName = data.location.city.name;
+  var locationData = result.location;
+  var html = "<h3>Информация об IP-адресе:</h3><ul>";
+
+  function processValue(value, key) {
+    if (value === null || value === undefined) {
+      return "не указано";
+    }
+    if (typeof value === 'object') {
+      var items = [];
+      for (var subKey in value) {
+        if (value.hasOwnProperty(subKey)) {
+          items.push(subKey + ": " + processValue(value[subKey], subKey));
+        }
+      }
+      return items.join("; ");
+    }
+    return value;
   }
 
-  var html = "<div class='city-result'>";
-  html += "<h3>Результат определения города по IP:</h3>";
-  html += "<p><strong>Город:</strong> <span class='city-name'>" + cityName + "</span></p>";
-
-  if (data && data.ip) {
-    html += "<details>";
-    html += "<summary>Дополнительная информация</summary>";
-    html += "<p><strong>IP-адрес:</strong> " + data.ip + "</p>";
-    if (data.location && data.location.country && data.location.country.name) {
-      html += "<p><strong>Страна:</strong> " + data.location.country.name + "</p>";
+  for (var key in locationData) {
+    if (locationData.hasOwnProperty(key)) {
+      var value = locationData[key];
+      html += "<li><strong>" + key + ":</strong> " + processValue(value, key) + "</li>";
     }
-    if (data.location && data.location.region && data.location.region.name) {
-      html += "<p><strong>Регион:</strong> " + data.location.region.name + "</p>";
-    }
-    if (data.location && data.location.geo && data.location.geo.lat && data.location.geo.lon) {
-      html += "<p><strong>Координаты:</strong> " +
-        data.location.geo.lat + ", " + data.location.geo.lon + "</p>";
-    }
-    html += "</details>";
   }
-  html += "</div>";
 
+  html += "</ul>";
   resultDiv.html(html);
 }
 
-function handleError(jqXHR, textStatus, errorThrown) {
+function displayNoLocation(ip) {
+  $("#result").html("<p>Для IP-адреса <strong>" + ip + "</strong> геолокация не найдена.</p>");
+}
+
+function handleError(xhr, status, error) {
   var resultDiv = $("#result");
-  resultDiv.html(
-    "<div class='error-message'>" +
-    "<p style='color: red;'>Ошибка при выполнении запроса: " + textStatus + "</p>" +
-    "<p>Проверьте правильность IP‑адреса и доступность API</p>" +
-    "</div>"
-  );
-  console.error("Ошибка API Dadata:", jqXHR, textStatus, errorThrown);
+
+  if (xhr.status === 401) {
+    resultDiv.html("<p style='color: red;'>Ошибка авторизации. Проверьте API-ключ.</p>");
+  } else if (xhr.status === 400) {
+    resultDiv.html("<p style='color: red;'>Неверный IP-адрес или параметры запроса.</p>");
+  } else {
+    resultDiv.html("<p style='color: red;'>Произошла ошибка: " + error + "</p>");
+  }
 }
